@@ -1,0 +1,10 @@
+{
+	"name": "ls_adls_lankapulse",
+	"properties": {
+		"annotations": [],
+		"type": "AzureBlobFS",
+		"typeProperties": {
+			"url": "https://stlankapulse26.dfs.core.windows.net/"
+		}
+	}
+}
