@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+
+# Local data and generated outputs
+data/
+*.parquet
+*.csv
+*.json
+!tests/sample_data/*.json
+!tests/sample_data/*.csv
+*.pdf
+!tests/sample_data/*.pdf
+
+# Azure/local tooling
+.azure/
+local.settings.json
+adf/Publish枝*
+adf/.publish/
+
+# Power BI generated files
+*.pbi/
+~$*.pbix
+
+# Editors and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,434 @@
+LANKAPULSE: TOURISM & ECONOMY DATA PLATFORM ON AZURE
+Full project blueprint (Python + Azure Data Factory + ADLS Gen2 + Azure SQL + Power BI)
+
+Prepared for: Tharusha Rathnamalala
+Target role: Intern - Data Engineering, OCTAVE (John Keells Holdings)
+
+======================================================================
+0. READ THIS FIRST
+======================================================================
+- Do not list this project on your CV until it is actually running. Apply to JKH now with your fixed CV, then add this project when it is done.
+- Do not create Azure resources until Day 1 of the build. Student credits can expire quickly (see section 4).
+- Everything here uses free public data. Check each source's terms again before you publish the repo, and credit every source in the README.
+
+======================================================================
+1. GOAL AND JOB MAPPING
+======================================================================
+The JKH posting asks for three things. The project proves each one.
+
+Job responsibility                              | What the project shows
+------------------------------------------------|---------------------------------------------
+Create pipelines to source data into data lakes | ADF pipelines pulling APIs and PDFs into ADLS Gen2 (raw layer)
+Manage curated layer with data models           | Star schema in Azure SQL built from the curated layer
+Proactively identify data quality issues and automate solutions | DQ framework, quarantine container, reconciliation checks, alerts
+Translate business problems into solutions      | Business questions answered in Power BI (section 12)
+Python and Azure Data Factory                   | Python transforms (Azure Functions) orchestrated by ADF
+
+Business questions the platform answers:
+1. How do monthly tourist arrivals relate to the LKR exchange rate?
+2. How does rainfall in key tourist regions relate to arrivals?
+3. Which source markets are growing or shrinking, and how stable is each market?
+
+======================================================================
+2. DATA SOURCES
+======================================================================
+A) Exchange rates (CBSL via Frankfurter API)
+   - Free, no API key. CBSL indicative rates, 56 currencies, 2011 to present.
+   - Latest:      https://api.frankfurter.dev/v2/rates?providers=CBSL
+   - Historical:  https://api.frankfurter.dev/v2/rates?from=YYYY-MM-DD&providers=CBSL
+     (the docs show a "group=month" option; check the docs page https://frankfurter.dev/providers/cbsl/ for daily date-range parameters before you build)
+   - Official source for reference: https://www.cbsl.gov.lk/en/rates-and-indicators/exchange-rates
+
+B) Tourist arrivals (SLTDA monthly reports, PDF)
+   - Monthly Tourist Arrivals Reports published by Sri Lanka Tourism Development Authority.
+   - Files live under https://www.sltda.gov.lk/storage/common_media/ with inconsistent names, for example:
+       MonthlyTouritsArrivalsReport-May-2026-Final-1.pdf
+       Monthly_Tourits_Arrivals_Report-October-2025-Final.pdf
+       MonthlyTouritsArrivalsReport-June-2026-Final-Updated_1.pdf
+   - Some months have "Updated" re-issues. You must keep the latest version only.
+   - Contents include monthly totals, arrivals by region, and arrivals by country of residence.
+   - Because names are inconsistent, build a manifest table (month, url, version, status) by hand or by scraping the SLTDA reports page, then drive the pipeline from the manifest.
+
+C) Weather (Open-Meteo Historical Weather API)
+   - Free for non-commercial use, no API key, data back to 1940, licensed CC BY 4.0.
+   - Endpoint: https://archive-api.open-meteo.com/v1/archive
+   - Parameters: latitude, longitude, start_date, end_date, daily (for example temperature_2m_max, temperature_2m_min, precipitation_sum, wind_speed_10m_max), timezone=Asia/Colombo
+   - You must display a link such as "Weather data by Open-Meteo.com" in your README and report.
+   - Suggested locations (name, lat, lon):
+       Colombo 6.9271, 79.8612
+       Kandy 7.2906, 80.6337
+       Galle 6.0535, 80.2210
+       Nuwara Eliya 6.9497, 80.7891
+       Sigiriya 7.9570, 80.7603
+       Arugam Bay 6.8400, 81.8350
+
+D) Not used: Colombo Stock Exchange prices
+   - Historical CSE data is sold by the exchange. Free options are third-party scrapers. Skip it.
+   - Optional extra later: CBSL statistical tables (monthly Excel) if you want a macro dimension. Verify availability and terms first.
+
+======================================================================
+3. ARCHITECTURE
+======================================================================
+Sources                       Orchestration            Storage / Processing                 Serving
+-------                       -------------            --------------------                 -------
+Frankfurter API (FX)   --\
+Open-Meteo API (weather) --+-> ADF pipelines  ->  ADLS Gen2: raw -> cleansed -> curated -> Azure SQL star schema -> Power BI
+SLTDA PDFs (arrivals)  --/        |                     |  (Parquet)     (Parquet)              ^
+                                  |                     +-> quarantine (rejected rows)          |
+                                  +-> Azure Functions (Python transforms + DQ checks) -----------+
+                                  +-> Azure Monitor alerts on failure
+                                  +-> pipeline_run_log and dq_results tables in Azure SQL
+
+Layers:
+- raw: untouched copies of source data, partitioned by ingest date. Never edited.
+- cleansed: typed, deduplicated, standardized Parquet. Rows failing checks go to quarantine.
+- curated: business-ready Parquet and SQL tables modelled as a star schema.
+
+======================================================================
+4. AZURE SETUP AND COST SAFETY
+======================================================================
+1. Sign up for Azure for Students with your SLIIT email: https://azure.microsoft.com/free/students
+   - Requires full-time student status. No credit card needed at signup.
+   - Offer terms differ by region. One page shows USD 1,000 immediately plus up to USD 4,000 after verification, with credits valid for 90 days initially. Another shows USD 100 usable within 12 months. Read what your signup screen says and write down the expiry date.
+2. Create ONE resource group named rg-lankapulse. Put everything in it so you can delete it in one step.
+3. Create a budget alert for a small amount (for example USD 5) on day one.
+4. Resources:
+   - Storage account with hierarchical namespace enabled (ADLS Gen2), LRS redundancy, containers: raw, cleansed, curated, quarantine
+   - Azure Data Factory (V2), connected to your GitHub repo (Git integration)
+   - Azure SQL Database, serverless, using the free offer (the student page lists 100,000 vCore seconds per month and 32 GB storage; confirm it applies to your subscription)
+   - Azure Function App (Python, consumption plan)
+   - Azure Key Vault for secrets (optional but good practice)
+5. ADF's always-free allowance is tiny (the student page lists 5 low-frequency activities). Expect small charges. Keep pipelines lean, avoid Mapping Data Flows unless needed, and avoid frequent triggers.
+6. When finished: record the demo, take screenshots, then delete rg-lankapulse.
+
+======================================================================
+5. REPOSITORY STRUCTURE
+======================================================================
+lankapulse/
+  README.md                  overview, architecture diagram, setup, results, data credits
+  docs/
+    architecture.png
+    data_dictionary.md
+    dq_rules.md
+    screenshots/
+  adf/                       ADF Git integration output (pipelines, datasets, linked services, triggers)
+  functions/
+    ingest_sltda_pdf/        PDF parsing function
+    transform_fx/
+    transform_weather/
+    run_dq_checks/
+    shared/                  common helpers (paths, logging, schema)
+  sql/
+    01_schemas.sql
+    02_dimensions.sql
+    03_facts.sql
+    04_logging_tables.sql
+    05_load_procedures.sql
+    06_views_marts.sql
+  tests/
+    test_pdf_parser.py
+    test_fx_transform.py
+    test_weather_transform.py
+    test_dq_rules.py
+    sample_data/
+  powerbi/
+    lankapulse.pbix (or screenshots plus a PDF export)
+  requirements.txt
+  .github/workflows/ci.yml   runs pytest and linting on every push
+
+======================================================================
+6. DATA LAKE LAYOUT
+======================================================================
+raw/
+  fx/ingest_date=YYYY-MM-DD/fx_<from>_<to>.json
+  weather/location=<name>/ingest_date=YYYY-MM-DD/weather_<from>_<to>.json
+  sltda/<year>/<original_filename>.pdf
+  sltda/manifest.csv
+cleansed/
+  fx/year=YYYY/part-*.parquet
+  weather/location=<name>/year=YYYY/part-*.parquet
+  arrivals/year=YYYY/month=MM/part-*.parquet
+curated/
+  dim_date/, dim_country/, dim_currency/, dim_location/
+  fact_fx_rate_daily/, fact_weather_daily/, fact_tourist_arrivals_monthly/
+quarantine/
+  <dataset>/ingest_date=YYYY-MM-DD/rejected_<run_id>.parquet   (include a reject_reason column)
+
+======================================================================
+7. ADF PIPELINES
+======================================================================
+Use parameters everywhere. No hard-coded dates, URLs, or paths.
+
+PIPELINE 1: pl_ingest_fx_daily
+- Trigger: daily, after Sri Lanka business hours.
+- Steps:
+  1. Lookup activity: read last loaded date from pipeline_watermark table (dataset = fx).
+  2. Copy activity (REST source, ADLS JSON sink): pull rates from watermark+1 to today.
+  3. Azure Function activity: transform_fx (raw JSON to cleansed Parquet, with DQ checks).
+  4. Stored procedure activity: load curated fact_fx_rate_daily (incremental, MERGE).
+  5. Stored procedure activity: update watermark.
+  6. Log success or failure to pipeline_run_log (use on-failure path).
+- First run: backfill from 2011-01-01 in yearly chunks using a ForEach over a list of year ranges.
+
+PIPELINE 2: pl_ingest_weather_daily
+- Trigger: daily.
+- Parameters: list of locations (name, lat, lon).
+- Steps: ForEach location -> Copy (REST) -> Azure Function transform_weather -> stored procedure load -> watermark update per location.
+- First run: backfill from 2015-01-01 (or 2011 to match FX), in yearly chunks per location.
+- Note: archive data lags the present by a few days. Set end_date = today minus 5 days and test.
+
+PIPELINE 3: pl_ingest_sltda_monthly
+- Trigger: monthly (SLTDA publishes after month end, often with a delay) plus manual rerun.
+- Steps:
+  1. Lookup: read manifest rows where status = 'pending' or version updated.
+  2. ForEach manifest row: Copy activity (HTTP binary source, ADLS sink) into raw/sltda/.
+  3. Azure Function ingest_sltda_pdf: parse tables, write cleansed/arrivals Parquet, run reconciliation checks, update manifest status (loaded / failed / needs_review).
+  4. Stored procedure: load fact_tourist_arrivals_monthly (MERGE; if a month is re-issued as "Updated", replace that month).
+  5. Log to pipeline_run_log.
+
+PIPELINE 4: pl_master_orchestrator
+- Runs the three pipelines in order (arrivals depend on dim_country being current), then refreshes marts and runs the final DQ summary.
+- Single place to alert on failure.
+
+Triggers: schedule triggers for 1, 2, 3 or the master only. Tumbling window trigger is optional for the backfill.
+
+Alerting: create an Azure Monitor alert rule on "Pipeline run failed" for the factory, with an email action group.
+
+======================================================================
+8. PYTHON TRANSFORMS (Azure Functions)
+======================================================================
+General rules:
+- Use pandas + pyarrow. Read from and write to ADLS with azure-storage-file-datalake and azure-identity (managed identity if possible).
+- Every function takes run_id, dataset, and source/target paths as input and returns row counts (read, written, rejected) as JSON for ADF to log.
+- Never overwrite raw. Write deterministic outputs so reruns are idempotent.
+
+transform_fx:
+- Parse JSON to columns: rate_date, base_currency (LKR), quote_currency, rate, provider (CBSL), ingest_ts.
+- Check: rate > 0, valid ISO currency code, no duplicate (rate_date, currency).
+- Note the direction of the rate (LKR per 1 unit of foreign currency vs the inverse). Document it in the data dictionary and standardize.
+
+transform_weather:
+- Columns: observation_date, location_key, temp_max_c, temp_min_c, precip_mm, wind_max_kmh.
+- Check: precip >= 0, temp_min <= temp_max, temperatures in a plausible range for Sri Lanka, no missing dates per location, no duplicates.
+
+ingest_sltda_pdf (the hardest part, and your best story):
+- Use pdfplumber (or camelot) to extract the "arrivals by country of residence" table and the monthly totals table.
+- Standardize country names via a mapping file (for example "Russian Federation" vs "Russia"). Keep unmapped names in a review list instead of guessing.
+- Output columns: report_month, country_name, region, arrivals, pct_share, report_version, source_file.
+- Layout changes between months. Build the parser defensively, add a parser test per layout you see, and on failure set manifest status = needs_review instead of loading bad data.
+- Reconciliation: sum of country arrivals vs the total stated in the report. Allow a tiny tolerance only if justified, and log the difference.
+
+======================================================================
+9. CURATED SCHEMA (Azure SQL, T-SQL)
+======================================================================
+Schemas: stg, dw, ops
+
+-- Dimensions
+CREATE TABLE dw.dim_date (
+  date_key INT PRIMARY KEY,            -- YYYYMMDD
+  full_date DATE NOT NULL,
+  year SMALLINT, quarter TINYINT, month TINYINT, month_name VARCHAR(12),
+  week_of_year TINYINT, day_of_week TINYINT, is_weekend BIT,
+  is_business_day BIT, season VARCHAR(20)   -- optional: monsoon/season tag
+);
+
+CREATE TABLE dw.dim_country (
+  country_key INT IDENTITY PRIMARY KEY,
+  country_name VARCHAR(100) NOT NULL,
+  region VARCHAR(50),
+  iso_code CHAR(2) NULL,
+  valid_from DATE, valid_to DATE, is_current BIT   -- SCD2 if names or regions change
+);
+
+CREATE TABLE dw.dim_currency (
+  currency_key INT IDENTITY PRIMARY KEY,
+  currency_code CHAR(3) NOT NULL UNIQUE,
+  currency_name VARCHAR(60)
+);
+
+CREATE TABLE dw.dim_location (
+  location_key INT IDENTITY PRIMARY KEY,
+  location_name VARCHAR(60) NOT NULL,
+  latitude DECIMAL(9,6), longitude DECIMAL(9,6),
+  tourism_zone VARCHAR(40)
+);
+
+-- Facts
+CREATE TABLE dw.fact_fx_rate_daily (
+  date_key INT NOT NULL, currency_key INT NOT NULL,
+  rate_lkr DECIMAL(18,6) NOT NULL,
+  source_run_id VARCHAR(40),
+  PRIMARY KEY (date_key, currency_key)
+);
+
+CREATE TABLE dw.fact_weather_daily (
+  date_key INT NOT NULL, location_key INT NOT NULL,
+  temp_max_c DECIMAL(5,2), temp_min_c DECIMAL(5,2),
+  precip_mm DECIMAL(7,2), wind_max_kmh DECIMAL(6,2),
+  source_run_id VARCHAR(40),
+  PRIMARY KEY (date_key, location_key)
+);
+
+CREATE TABLE dw.fact_tourist_arrivals_monthly (
+  month_date_key INT NOT NULL,         -- first day of month as YYYYMMDD
+  country_key INT NOT NULL,
+  arrivals INT NOT NULL,
+  pct_share DECIMAL(6,3),
+  report_version VARCHAR(30),
+  source_run_id VARCHAR(40),
+  PRIMARY KEY (month_date_key, country_key)
+);
+
+-- Ops tables
+CREATE TABLE ops.pipeline_watermark (
+  dataset VARCHAR(60) PRIMARY KEY, last_loaded_date DATE, updated_ts DATETIME2
+);
+
+CREATE TABLE ops.pipeline_run_log (
+  run_id VARCHAR(40), pipeline_name VARCHAR(100), dataset VARCHAR(60),
+  start_ts DATETIME2, end_ts DATETIME2, status VARCHAR(20),
+  rows_read INT, rows_written INT, rows_rejected INT, error_message NVARCHAR(2000)
+);
+
+CREATE TABLE ops.dq_results (
+  run_id VARCHAR(40), dataset VARCHAR(60), rule_id VARCHAR(40),
+  rule_description VARCHAR(300), severity VARCHAR(10),   -- ERROR / WARN
+  rows_checked INT, rows_failed INT, passed BIT, checked_ts DATETIME2
+);
+
+CREATE TABLE ops.sltda_manifest (
+  report_month DATE, url VARCHAR(500), file_name VARCHAR(200),
+  version_label VARCHAR(40), status VARCHAR(20),   -- pending/loaded/failed/needs_review
+  last_checked_ts DATETIME2
+);
+
+Loading pattern: land in stg.* via Copy or Function, then MERGE into dw.* in stored procedures (insert new, update changed, never duplicate keys). Make every load rerunnable.
+
+Mart view (answers business question 1 and 2):
+CREATE VIEW dw.vw_monthly_tourism_context AS
+ -- per month: total arrivals, arrivals by region, average USD/LKR, total rainfall for selected locations
+
+======================================================================
+10. DATA QUALITY RULES (write these into docs/dq_rules.md)
+======================================================================
+Severity ERROR = reject rows to quarantine and fail the dataset load. WARN = load but log and alert.
+
+FX
+- FX01 (ERROR) rate is positive and not null
+- FX02 (ERROR) no duplicate (date, currency)
+- FX03 (WARN) a business day has no rate for a currency that had one the previous business day
+- FX04 (WARN) day-over-day change above a threshold (for example 5 percent), flag for review
+
+Weather
+- WX01 (ERROR) no duplicate (date, location)
+- WX02 (ERROR) temp_min <= temp_max
+- WX03 (ERROR) precip_mm >= 0
+- WX04 (WARN) missing dates in the loaded range for a location
+- WX05 (WARN) value outside plausible range
+
+Arrivals
+- AR01 (ERROR) arrivals is a non-negative integer
+- AR02 (ERROR) no duplicate (month, country)
+- AR03 (ERROR) sum of countries reconciles to the report total (log the difference)
+- AR04 (WARN) country name not in mapping file
+- AR05 (WARN) month-over-month or year-over-year change beyond a threshold
+- AR06 (ERROR) one report version per month in the curated table
+
+Cross-layer
+- XL01 (ERROR) row counts: raw read = cleansed written + quarantined
+- XL02 (WARN) freshness: latest FX and weather date within an expected lag
+
+Every check writes a row to ops.dq_results. Every rejected row carries a reject_reason in quarantine.
+
+======================================================================
+11. LOGGING, ALERTING, AND SECURITY
+======================================================================
+- Generate a run_id (for example the ADF pipeline RunId) and pass it to every function and stored procedure.
+- Log start, end, row counts, and errors to ops.pipeline_run_log.
+- Alert on pipeline failure (Azure Monitor) and on any ERROR-level DQ failure.
+- Secrets: Key Vault or ADF linked-service credentials. Never commit keys, connection strings, or .env files. Add a .gitignore on day one.
+- Use managed identity for the Function and ADF access to storage where possible. Grant least privilege.
+
+======================================================================
+12. POWER BI REPORT
+======================================================================
+Connect to Azure SQL (Import mode is fine). Three pages:
+1. Overview: total arrivals trend, year-over-year change, top source markets, latest USD/LKR.
+2. Tourism vs economy: monthly arrivals vs average USD/LKR (dual-axis or scatter), with a clear note that correlation is not causation.
+3. Weather and seasonality: arrivals vs rainfall by month for chosen regions, region mix by season.
+Add a "Data Health" page that reads ops.dq_results and ops.pipeline_run_log. This page is what separates you from other applicants.
+Add a footer: data credits (CBSL via Frankfurter, SLTDA, Open-Meteo).
+
+======================================================================
+13. TESTING AND CI
+======================================================================
+- pytest unit tests for every transform and DQ rule using small sample files in tests/sample_data.
+- Include at least one test per PDF layout variation and one test for the "Updated" version logic.
+- GitHub Actions workflow: install requirements, run flake8 or ruff, run pytest on every push.
+- ADF: commit via Git integration so pipeline JSON is in the repo. Show a screenshot of the Git-connected factory.
+
+======================================================================
+14. DAY-BY-DAY PLAN (about 10 days)
+======================================================================
+Day 0 (before touching Azure): create the repo, folder structure, .gitignore, README skeleton. Pull sample data locally for all three sources. Write the PDF parser against 3 to 4 downloaded reports first (this is local work and costs nothing).
+Day 1: Azure signup, resource group, budget alert, storage account and containers, ADF with Git, Azure SQL, Function App. Create the SQL schemas and ops tables.
+Day 2: FX pipeline end to end (backfill 2011 to now, then incremental). Test rerun without duplicates.
+Day 3: Weather pipeline for all locations, with backfill and incremental logic.
+Day 4: SLTDA manifest, HTTP copy, PDF parse function for all available months. Fix layout differences.
+Day 5: Cleansed layer complete for all three datasets. Country mapping file, quarantine path working.
+Day 6: Dimensions and facts, MERGE procedures, mart view.
+Day 7: DQ framework wired into every pipeline. dq_results and run log populated. Reconciliation check live.
+Day 8: Master orchestrator, triggers, Azure Monitor alert. Break something on purpose (bad file, bad value) and capture the alert and quarantine as proof.
+Day 9: Power BI report including the Data Health page. pytest and CI green.
+Day 10: Architecture diagram, README, data dictionary, 2-minute screen recording, screenshots. Compute final numbers for the CV. Delete the resource group.
+
+======================================================================
+15. DELIVERABLES CHECKLIST
+======================================================================
+[ ] Public GitHub repo with README, architecture diagram, setup steps
+[ ] Data dictionary and DQ rules documents
+[ ] Screenshots: ADF pipelines, successful runs, lake layers, quarantine example, dq_results, alert email
+[ ] 2-minute screen recording of a pipeline run through to the report
+[ ] Power BI .pbix or exported PDF and screenshots
+[ ] CI badge in the README
+[ ] Data credits section (CBSL via Frankfurter, SLTDA, Open-Meteo with link)
+[ ] Resource group deleted afterwards, with a note in the README that the project is not hosted live and how to redeploy
+
+======================================================================
+16. CV BULLETS (fill in ONLY with real numbers from your run)
+======================================================================
+LankaPulse: Tourism & Economy Data Platform | Azure Data Factory, ADLS Gen2, Python, Azure Functions, Azure SQL, Power BI
+- Built an Azure data platform ingesting [N] daily FX records, [N] weather records, and [N] monthly tourism reports (PDF) into an ADLS Gen2 lake with raw, cleansed, and curated layers.
+- Orchestrated [N] parameterized ADF pipelines with incremental watermark loads, scheduled triggers, and failure alerting.
+- Developed Python (Azure Functions) transforms to parse inconsistently formatted PDF reports, standardize [N] country names, and resolve re-issued report versions.
+- Implemented [N] automated data quality rules with quarantine of rejected rows and report-total reconciliation, logging results for monitoring.
+- Modelled a star schema in Azure SQL ([N] dimensions, [N] facts) and delivered a Power BI report with a data-health page.
+- Added pytest unit tests and a GitHub Actions CI pipeline.
+
+Summary line to add: "Built an Azure-based data lake and ADF pipeline project with automated data quality monitoring."
+
+======================================================================
+17. INTERVIEW TALKING POINTS
+======================================================================
+- Why raw/cleansed/curated layers, and why raw is never edited.
+- How incremental loads work (watermark, MERGE, idempotent reruns) and how you proved reruns do not duplicate.
+- The hardest problem: PDF layout drift and "Updated" re-issues, and how you handled them.
+- A real DQ issue you found in the data and what the rule did about it.
+- What you would change at JKH scale: Databricks or Synapse for heavy transforms, Delta Lake format, CI/CD for ADF with ARM or Bicep, data catalog and lineage, SLAs and monitoring dashboards.
+- Honest limits: runs on free-tier resources, not deployed live, public data only, small volumes.
+
+======================================================================
+18. PITFALLS TO AVOID
+======================================================================
+- Do not hard-code dates, URLs, or keys.
+- Do not over-engineer: skip Mapping Data Flows, Databricks, and Synapse for this build.
+- Do not claim production deployment, scale, or users. State what it is.
+- Do not leave resources running after the demo.
+- Do not forget attribution for Open-Meteo, CBSL, and SLTDA.
+- Keep the commit history clean and regular. A single giant commit looks suspicious.
+- Test on a small date range first. Backfills over 15 years of daily data multiply costs and debugging time.
+
+======================================================================
+END
+======================================================================
+
