@@ -32,6 +32,12 @@ def run_local_dq(cleansed_root: Path, output_root: Path) -> tuple[pd.DataFrame, 
     fx = _read(cleansed_root, "fx")
     weather = _read(cleansed_root, "weather")
     arrivals = _read(cleansed_root, "arrivals")
+    if not arrivals.empty:
+        if "coverage_status" not in arrivals:
+            arrivals["coverage_status"] = "top_ten_partial"
+        else:
+            arrivals["coverage_status"] = arrivals["coverage_status"].fillna("top_ten_partial")
+        arrivals = arrivals.drop_duplicates().reset_index(drop=True)
     reports = []
     if not fx.empty:
         reports.append(check_fx(fx, "local-backfill-fx"))
@@ -49,7 +55,21 @@ def run_local_dq(cleansed_root: Path, output_root: Path) -> tuple[pd.DataFrame, 
             )
         )
     if not arrivals.empty:
-        reports.append(check_arrivals(arrivals, "local-backfill-arrivals"))
+        report_totals = None
+        if "report_total" in arrivals.columns:
+            totals = arrivals.dropna(subset=["report_total"])[
+                ["report_month", "report_total"]
+            ].drop_duplicates()
+            report_totals = {
+                str(row.report_month): int(row.report_total) for row in totals.itertuples()
+            }
+        reports.append(
+            check_arrivals(
+                arrivals,
+                "local-backfill-arrivals",
+                report_totals=report_totals,
+            )
+        )
 
     dq_results, rejected = _combine(reports)
     output_root.mkdir(parents=True, exist_ok=True)

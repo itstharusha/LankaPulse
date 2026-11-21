@@ -43,11 +43,29 @@ def test_local_dq_persists_results_and_flags_incomplete_arrivals(tmp_path) -> No
         "arrivals.parquet",
         pd.DataFrame(
             {
-                "report_month": ["2026-01"],
-                "country_name": ["India"],
-                "region": ["Asia & Pacific"],
-                "arrivals": [100],
-                "report_version": ["Final"],
+                "report_month": ["2026-01", "2026-02"],
+                "country_name": ["India", "India"],
+                "region": ["Asia & Pacific", "Asia & Pacific"],
+                "arrivals": [100, 120],
+                "report_version": ["Final", "Final"],
+                "coverage_status": ["full_country_reconciled", "top_ten_partial"],
+                "report_total": [100, pd.NA],
+            }
+        ),
+    )
+    _write(
+        cleansed,
+        "arrivals",
+        "ingest_date=2026-11-21/arrivals.parquet",
+        pd.DataFrame(
+            {
+                "report_month": ["2026-01", "2026-02"],
+                "country_name": ["India", "India"],
+                "region": ["Asia & Pacific", "Asia & Pacific"],
+                "arrivals": [100, 120],
+                "report_version": ["Final", "Final"],
+                "coverage_status": ["full_country_reconciled", "top_ten_partial"],
+                "report_total": [100, pd.NA],
             }
         ),
     )

@@ -64,6 +64,7 @@ def test_local_mart_aggregates_sources_by_month_and_weather_location(tmp_path) -
                 "country_name": ["India", "United Kingdom", "United States", "Other"],
                 "region": ["Asia & Pacific", "Europe", "Americas", "Unmapped"],
                 "arrivals": [100, 50, 20, 5],
+                "coverage_status": ["top_ten_partial"] * 4,
             }
         ),
     )
@@ -81,13 +82,13 @@ def test_local_mart_aggregates_sources_by_month_and_weather_location(tmp_path) -
     assert colombo["average_wind_max_kmh"] == 12.0
     assert colombo["weather_observation_days"] == 2
     assert galle["total_rainfall_mm"] == 8.0
-    assert colombo["parsed_top_market_arrivals"] == 175
-    assert colombo["parsed_top_market_asia_pacific_arrivals"] == 100
-    assert colombo["parsed_top_market_europe_arrivals"] == 50
-    assert colombo["parsed_top_market_americas_arrivals"] == 20
-    assert colombo["parsed_top_market_unmapped_arrivals"] == 5
-    assert colombo["parsed_market_count"] == 4
-    assert colombo["arrivals_coverage_status"] == "top_ten_source_markets_only"
+    assert colombo["reported_market_arrivals"] == 175
+    assert colombo["reported_asia_pacific_arrivals"] == 100
+    assert colombo["reported_europe_arrivals"] == 50
+    assert colombo["reported_americas_arrivals"] == 20
+    assert colombo["reported_unmapped_arrivals"] == 5
+    assert colombo["reported_market_count"] == 4
+    assert colombo["arrivals_coverage_status"] == "top_ten_partial"
     assert not colombo["arrivals_is_complete"]
     assert "total_arrivals" not in mart.columns
     assert (curated_root / "monthly_tourism_context.parquet").exists()
@@ -96,8 +97,23 @@ def test_local_mart_aggregates_sources_by_month_and_weather_location(tmp_path) -
     assert len(pd.read_csv(curated_root / "monthly_tourism_context.csv")) == 2
 
 
-def test_local_mart_marks_months_without_parsed_arrivals_as_incomplete(tmp_path) -> None:
+def test_local_mart_marks_reconciled_full_country_month_complete(tmp_path) -> None:
     cleansed_root = tmp_path / "cleansed"
+    _write_parquet(
+        cleansed_root,
+        "arrivals",
+        "arrivals.parquet",
+        pd.DataFrame(
+            {
+                "report_month": ["2026-02"],
+                "country_name": ["India"],
+                "region": ["Asia & Pacific"],
+                "arrivals": [315],
+                "coverage_status": ["full_country_reconciled"],
+            }
+        ),
+    )
+
     _write_parquet(
         cleansed_root,
         "fx",
@@ -115,7 +131,7 @@ def test_local_mart_marks_months_without_parsed_arrivals_as_incomplete(tmp_path)
     mart = build_local_mart(cleansed_root, tmp_path / "curated")
 
     assert len(mart) == 1
-    assert pd.isna(mart.iloc[0]["parsed_top_market_arrivals"])
-    assert mart.iloc[0]["arrivals_coverage_status"] == "no_parsed_market_rows"
-    assert not mart.iloc[0]["arrivals_is_complete"]
+    assert mart.iloc[0]["reported_market_arrivals"] == 315
+    assert mart.iloc[0]["arrivals_coverage_status"] == "full_country_reconciled"
+    assert mart.iloc[0]["arrivals_is_complete"]
     assert "total_arrivals" not in mart.columns

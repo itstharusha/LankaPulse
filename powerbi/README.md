@@ -12,9 +12,10 @@ py -m scripts.run_local_dq
 py -m scripts.build_local_report
 ```
 
-It includes FX history, a rainfall location selector, parsed top-market mix,
-and source coverage. The arrivals charts are explicitly partial: they do not
-claim full monthly tourist totals.
+It includes FX history, a rainfall location selector, reported-market mix,
+and source coverage. January 2019 is a complete country table reconciled to the
+official monthly total; recent top-ten extracts remain explicitly partial and
+are never presented as full monthly totals.
 
 This HTML preview is not a Power BI `.pbix` file. A native Power BI report and
 Azure SQL connection remain a separate deployment deliverable.

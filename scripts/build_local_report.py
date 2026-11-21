@@ -106,16 +106,20 @@ def _weather_figure(data: pd.DataFrame) -> go.Figure:
 
 
 def _arrivals_figure(data: pd.DataFrame) -> go.Figure:
-    report_rows = data.loc[data["arrivals_coverage_status"].eq("top_ten_source_markets_only")]
+    report_rows = data.loc[
+        data["arrivals_coverage_status"].isin(["top_ten_partial", "full_country_reconciled"])
+    ]
     if report_rows.empty:
         return _base_layout(go.Figure(), "03 / Parsed source markets")
     monthly = report_rows.groupby("month_date", as_index=False).first().sort_values("month_date")
     figure = go.Figure()
     regions = [
-        ("parsed_top_market_asia_pacific_arrivals", "Asia & Pacific", GREEN),
-        ("parsed_top_market_europe_arrivals", "Europe", CORAL),
-        ("parsed_top_market_americas_arrivals", "Americas", BLUE),
-        ("parsed_top_market_unmapped_arrivals", "Unmapped", GOLD),
+        ("reported_asia_pacific_arrivals", "Asia & Pacific", GREEN),
+        ("reported_europe_arrivals", "Europe", CORAL),
+        ("reported_americas_arrivals", "Americas", BLUE),
+        ("reported_africa_arrivals", "Africa", GOLD),
+        ("reported_middle_east_arrivals", "Middle East", "#6e7353"),
+        ("reported_unmapped_arrivals", "Unmapped", "#9b6b52"),
     ]
     for column, label, color in regions:
         if column in monthly:
@@ -123,21 +127,23 @@ def _arrivals_figure(data: pd.DataFrame) -> go.Figure:
                 go.Bar(x=monthly["month_date"], y=monthly[column], name=label, marker_color=color)
             )
     figure.update_layout(barmode="stack")
-    figure.update_yaxes(title="Parsed arrivals (top-ten table only)")
-    return _base_layout(figure, "03 / Parsed source-market mix")
+    figure.update_yaxes(title="Reported market arrivals")
+    return _base_layout(figure, "03 / Reported source-market mix")
 
 
 def _coverage_figure(data: pd.DataFrame) -> go.Figure:
     months = (
-        data.loc[data["parsed_market_count"].notna()].groupby("month_date", as_index=False).first()
+        data.loc[data["reported_market_count"].notna()]
+        .groupby("month_date", as_index=False)
+        .first()
     )
     figure = go.Figure(
         go.Bar(
             x=months["month_date"],
-            y=months["parsed_market_count"],
+            y=months["reported_market_count"],
             marker_color=CORAL,
             text=months["arrivals_coverage_status"],
-            hovertemplate="%{x|%b %Y}<br>%{y} parsed markets<extra></extra>",
+            hovertemplate="%{x|%b %Y}<br>%{y} reported rows<extra></extra>",
         )
     )
     figure.update_yaxes(title="Markets extracted")
@@ -154,11 +160,14 @@ def build_local_report(
     )
     fx_rows = data.dropna(subset=["average_usd_lkr"]).drop_duplicates("month_date")
     weather_rows = data.dropna(subset=["total_rainfall_mm"])
-    report_rows = data.loc[data["arrivals_coverage_status"].eq("top_ten_source_markets_only")]
-    parsed_arrivals = int(
-        report_rows.groupby("month_date")["parsed_top_market_arrivals"].first().sum()
+    partial_rows = data.loc[data["arrivals_coverage_status"].eq("top_ten_partial")]
+    full_rows = data.loc[data["arrivals_coverage_status"].eq("full_country_reconciled")]
+    partial_arrivals = int(
+        partial_rows.groupby("month_date")["reported_market_arrivals"].first().sum()
     )
-    report_count = int(report_rows["month_date"].nunique())
+    partial_report_count = int(partial_rows["month_date"].nunique())
+    full_arrivals = int(full_rows.groupby("month_date")["reported_market_arrivals"].first().sum())
+    full_report_count = int(full_rows["month_date"].nunique())
     location_count = int(weather_rows["location_key"].nunique())
     date_span = (
         f"{data['month_date'].min():%b %Y} to {data['month_date'].max():%b %Y}"
@@ -234,10 +243,10 @@ footer{{padding:17px clamp(20px,5vw,76px);border-top:1px solid var(--rule);font:
     <section class="stats" aria-label="Dataset coverage">
         <div class="stat"><b>{len(fx_rows):,}</b><span>FX monthly observations / 56 currencies in source</span></div>
         <div class="stat"><b>{len(weather_rows):,}</b><span>Weather month-location observations / {location_count} locations</span></div>
-        <div class="stat"><b>{parsed_arrivals:,}</b><span>Parsed top-market arrivals / {report_count} reports</span></div>
-        <div class="stat"><b>{int((~data["arrivals_is_complete"].fillna(False)).sum()):,}</b><span>Mart rows not representing complete arrivals</span></div>
+        <div class="stat"><b>{full_arrivals:,}</b><span>Reconciled country arrivals / {full_report_count} report months</span></div>
+        <div class="stat"><b>{partial_arrivals:,}</b><span>Top-ten partial arrivals / {partial_report_count} report months</span></div>
     </section>
-    <aside class="warning"><strong>Coverage note:</strong> The available SLTDA PDFs currently contribute top-ten source-market tables only. These parsed values are not total tourist arrivals, and no complete country-level series or reconciliation is claimed.</aside>
+    <aside class="warning"><strong>Coverage note:</strong> January 2019 currently has a full country table reconciled to its official report total. The 2025-10 and 2026-05/06 reports are top-ten-only extracts; those values are not monthly totals. A complete continuous country-level history is not yet available.</aside>
     <section class="grid" aria-label="Tourism and economy charts">
         <div class="panel">{plot_divs[0]}</div>
         <div class="panel">{plot_divs[1]}</div>

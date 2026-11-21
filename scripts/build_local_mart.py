@@ -16,19 +16,27 @@ WEATHER_COLUMNS = [
     "precip_mm",
     "wind_max_kmh",
 ]
-ARRIVALS_COLUMNS = ["report_month", "country_name", "region", "arrivals"]
+ARRIVALS_COLUMNS = [
+    "report_month",
+    "country_name",
+    "region",
+    "arrivals",
+    "coverage_status",
+]
 REGION_COLUMNS = {
-    "Asia & Pacific": "parsed_top_market_asia_pacific_arrivals",
-    "Europe": "parsed_top_market_europe_arrivals",
-    "Americas": "parsed_top_market_americas_arrivals",
-    "Unmapped": "parsed_top_market_unmapped_arrivals",
+    "Asia & Pacific": "reported_asia_pacific_arrivals",
+    "Europe": "reported_europe_arrivals",
+    "Americas": "reported_americas_arrivals",
+    "Africa": "reported_africa_arrivals",
+    "Middle East": "reported_middle_east_arrivals",
+    "Unmapped": "reported_unmapped_arrivals",
 }
 OUTPUT_COLUMNS = [
     "month_date",
     "location_key",
-    "parsed_top_market_arrivals",
+    "reported_market_arrivals",
     *REGION_COLUMNS.values(),
-    "parsed_market_count",
+    "reported_market_count",
     "arrivals_coverage_status",
     "arrivals_is_complete",
     "average_usd_lkr",
@@ -44,10 +52,14 @@ def _read_dataset(root: Path, dataset: str, columns: list[str]) -> pd.DataFrame:
     files = sorted((root / dataset).rglob("*.parquet"))
     if not files:
         return pd.DataFrame(columns=columns)
-    return pd.concat(
-        [pd.read_parquet(path, columns=columns) for path in files],
-        ignore_index=True,
-    )
+    frames = []
+    for path in files:
+        frame = pd.read_parquet(path)
+        for column in columns:
+            if column not in frame:
+                frame[column] = "top_ten_partial" if column == "coverage_status" else pd.NA
+        frames.append(frame[columns])
+    return pd.concat(frames, ignore_index=True)
 
 
 def _month_start(values: pd.Series) -> pd.Series:
@@ -100,9 +112,9 @@ def _aggregate_weather(data: pd.DataFrame) -> pd.DataFrame:
 def _aggregate_arrivals(data: pd.DataFrame) -> pd.DataFrame:
     columns = [
         "month_date",
-        "parsed_top_market_arrivals",
+        "reported_market_arrivals",
         *REGION_COLUMNS.values(),
-        "parsed_market_count",
+        "reported_market_count",
         "arrivals_coverage_status",
     ]
     if data.empty:
@@ -111,16 +123,20 @@ def _aggregate_arrivals(data: pd.DataFrame) -> pd.DataFrame:
     data["month_date"] = _month_start(data["report_month"])
     data["arrivals"] = pd.to_numeric(data["arrivals"], errors="coerce")
     data["region"] = data["region"].fillna("Unmapped")
+    data["coverage_status"] = data["coverage_status"].fillna("top_ten_partial")
     data = data.dropna(subset=["month_date", "arrivals"])
     data = data.drop_duplicates(["month_date", "country_name"], keep="last")
     monthly = data.groupby("month_date").agg(
-        parsed_top_market_arrivals=("arrivals", "sum"),
-        parsed_market_count=("arrivals", "count"),
+        reported_market_arrivals=("arrivals", "sum"),
+        reported_market_count=("arrivals", "count"),
     )
     for region, column in REGION_COLUMNS.items():
         regional = data.loc[data["region"].eq(region)].groupby("month_date")["arrivals"].sum()
         monthly[column] = regional.reindex(monthly.index, fill_value=0)
-    monthly["arrivals_coverage_status"] = "top_ten_source_markets_only"
+    coverage = data.groupby("month_date")["coverage_status"].agg(
+        lambda values: values.iloc[0] if values.nunique() == 1 else "mixed_review"
+    )
+    monthly["arrivals_coverage_status"] = coverage.reindex(monthly.index)
     return monthly.reset_index()
 
 
@@ -139,7 +155,9 @@ def build_local_mart(cleansed_root: Path, curated_root: Path) -> pd.DataFrame:
         mart["arrivals_coverage_status"] = mart["arrivals_coverage_status"].fillna(
             "no_parsed_market_rows"
         )
-        mart["arrivals_is_complete"] = False
+        mart["arrivals_is_complete"] = mart["arrivals_coverage_status"].eq(
+            "full_country_reconciled"
+        )
         mart = (
             mart.reindex(columns=OUTPUT_COLUMNS)
             .sort_values(["month_date", "location_key"], na_position="last", kind="stable")

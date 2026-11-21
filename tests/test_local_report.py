@@ -9,15 +9,17 @@ def test_local_report_is_offline_and_states_arrivals_coverage(tmp_path) -> None:
         {
             "month_date": ["2026-05-01", "2026-05-01"],
             "location_key": ["colombo", "galle"],
-            "parsed_top_market_arrivals": [100, 100],
-            "parsed_top_market_asia_pacific_arrivals": [70, 70],
-            "parsed_top_market_europe_arrivals": [20, 20],
-            "parsed_top_market_americas_arrivals": [10, 10],
-            "parsed_top_market_unmapped_arrivals": [0, 0],
-            "parsed_market_count": [10, 10],
+            "reported_market_arrivals": [100, 100],
+            "reported_asia_pacific_arrivals": [70, 70],
+            "reported_europe_arrivals": [20, 20],
+            "reported_americas_arrivals": [10, 10],
+            "reported_africa_arrivals": [0, 0],
+            "reported_middle_east_arrivals": [0, 0],
+            "reported_unmapped_arrivals": [0, 0],
+            "reported_market_count": [10, 10],
             "arrivals_coverage_status": [
-                "top_ten_source_markets_only",
-                "top_ten_source_markets_only",
+                "top_ten_partial",
+                "top_ten_partial",
             ],
             "arrivals_is_complete": [False, False],
             "average_usd_lkr": [300.0, 300.0],
@@ -44,8 +46,8 @@ def test_local_report_is_offline_and_states_arrivals_coverage(tmp_path) -> None:
 
     html = output_path.read_text(encoding="utf-8")
     assert "Tourism &amp; Economy" in html
-    assert "top-ten source-market tables only" in html
-    assert "not total tourist arrivals" in html
+    assert "top-ten-only extracts" in html
+    assert "those values are not monthly totals" in html
     assert "Data health" in html
     assert "AR03" in html
     assert "Plotly.newPlot" in html

@@ -239,32 +239,24 @@ def check_arrivals(
         "ERROR",
         duplicate_mask,
     )
-    if report_totals is None:
-        _append_result(
-            report,
-            run_id,
-            "arrivals",
-            "AR03",
-            "country totals reconcile to report total",
-            "ERROR",
-            len(data),
-            1,
-        )
-    else:
-        failed = 0
-        for month, total in report_totals.items():
-            if int(data.loc[data["report_month"] == month, "arrivals"].sum()) != total:
-                failed += 1
-        _append_result(
-            report,
-            run_id,
-            "arrivals",
-            "AR03",
-            "country totals reconcile to report total",
-            "ERROR",
-            len(report_totals),
-            failed,
-        )
+    report_months = set(data["report_month"].astype(str))
+    expected_totals = report_totals or {}
+    failed = sum(
+        month not in expected_totals
+        or int(data.loc[data["report_month"].astype(str).eq(month), "arrivals"].sum())
+        != expected_totals[month]
+        for month in report_months
+    )
+    _append_result(
+        report,
+        run_id,
+        "arrivals",
+        "AR03",
+        "country totals reconcile to report total",
+        "ERROR",
+        len(report_months),
+        failed,
+    )
     unknown_mask = data["region"].eq("Unmapped") | data["region"].isna()
     _append_row_rule(
         report,

@@ -135,6 +135,24 @@ def test_ar03_fails_when_report_totals_are_unavailable() -> None:
     assert not report.passed
 
 
+def test_ar03_fails_for_each_month_missing_a_report_total() -> None:
+    data = pd.DataFrame(
+        {
+            "report_month": ["2026-01", "2026-02"],
+            "country_name": ["A", "A"],
+            "region": ["Asia", "Asia"],
+            "arrivals": [10, 12],
+            "report_version": ["Final", "Final"],
+        }
+    )
+
+    report = check_arrivals(data, "run-ar03-missing-month", report_totals={"2026-01": 10})
+
+    ar03 = next(result for result in report.results if result.rule_id == "AR03")
+    assert ar03.rows_checked == 2
+    assert ar03.rows_failed == 1
+
+
 def test_ar05_checks_sorted_country_period_changes_with_zero_baselines() -> None:
     data = pd.DataFrame(
         {

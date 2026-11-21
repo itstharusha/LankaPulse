@@ -25,8 +25,9 @@ and investigation.
 
 Rejected rows carry `reject_reason` and are written under the dataset's
 quarantine path. The current SLTDA parser intentionally marks top-ten-only
-reports for review because those rows cannot reconcile to the full report total. AR03
-fails when a report total is unavailable; an unavailable check is not treated as a pass.
+reports for review because those rows cannot reconcile to the full report total.
+AR03 evaluates every report month and fails when that month has no report total;
+an unavailable check is not treated as a pass.
 AR05 evaluates month-over-month change per country. WX04 can accept expected
 locations and dates to detect missing location/date combinations. Non-finite FX
 and required weather values fail their corresponding ERROR checks.
