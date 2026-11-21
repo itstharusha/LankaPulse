@@ -1,0 +1,15 @@
+{
+	"name": "adf-lankapulse",
+	"properties": {
+		"trustModeClaimForMi": {
+			"value": "Disabled",
+			"editable": true
+		}
+	},
+	"location": "indiasouthcentral",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "bb9a6007-358d-47b9-b19b-c8dd577f4d09",
+		"tenantId": "44e3cf94-19c9-4e32-96c3-14f5bf01391a"
+	}
+}
