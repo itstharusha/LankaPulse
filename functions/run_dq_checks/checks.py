@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Iterable
 
+import numpy as np
 import pandas as pd
 
 
@@ -50,6 +51,7 @@ def check_fx(
     change_threshold: float = 0.05,
 ) -> DQReport:
     report = DQReport()
+    rate = pd.to_numeric(data["rate"], errors="coerce")
     _append_row_rule(
         report,
         data,
@@ -58,7 +60,7 @@ def check_fx(
         "FX01",
         "rate is positive and not null",
         "ERROR",
-        data["rate"].isna() | (pd.to_numeric(data["rate"], errors="coerce") <= 0),
+        ~np.isfinite(rate) | (rate <= 0),
     )
     duplicate_mask = data.duplicated(["rate_date", "quote_currency"], keep=False)
     _append_row_rule(
@@ -108,6 +110,7 @@ def check_weather(
     run_id: str,
     expected_dates: Iterable[str] | None = None,
     plausible_range: tuple[float, float] = (-10, 45),
+    expected_locations: Iterable[str] | None = None,
 ) -> DQReport:
     report = DQReport()
     duplicate_mask = data.duplicated(["observation_date", "location_key"], keep=False)
@@ -121,7 +124,9 @@ def check_weather(
         "ERROR",
         duplicate_mask,
     )
-    order_mask = data["temp_min_c"] > data["temp_max_c"]
+    temp_min = pd.to_numeric(data["temp_min_c"], errors="coerce")
+    temp_max = pd.to_numeric(data["temp_max_c"], errors="coerce")
+    order_mask = ~np.isfinite(temp_min) | ~np.isfinite(temp_max) | (temp_min > temp_max)
     _append_row_rule(
         report,
         data,
@@ -132,7 +137,8 @@ def check_weather(
         "ERROR",
         order_mask,
     )
-    precip_mask = pd.to_numeric(data["precip_mm"], errors="coerce").isna() | (data["precip_mm"] < 0)
+    precipitation = pd.to_numeric(data["precip_mm"], errors="coerce")
+    precip_mask = ~np.isfinite(precipitation) | (precipitation < 0)
     _append_row_rule(
         report,
         data,
@@ -143,13 +149,30 @@ def check_weather(
         "ERROR",
         precip_mask,
     )
-    if expected_dates is not None:
-        expected = set(pd.to_datetime(list(expected_dates)).strftime("%Y-%m-%d"))
+    if expected_dates is not None or expected_locations is not None:
+        locations = (
+            set(expected_locations)
+            if expected_locations is not None
+            else set(data["location_key"].dropna())
+        )
         missing = 0
-        for _, group in data.groupby("location_key"):
-            missing += len(
-                expected - set(pd.to_datetime(group["observation_date"]).dt.strftime("%Y-%m-%d"))
+        if expected_dates is not None:
+            expected = set(pd.to_datetime(list(expected_dates)).strftime("%Y-%m-%d"))
+            actual = {
+                (location, date)
+                for location, date in zip(
+                    data["location_key"],
+                    pd.to_datetime(data["observation_date"]).dt.strftime("%Y-%m-%d"),
+                )
+            }
+            missing = sum(
+                (location, date) not in actual for location in locations for date in expected
             )
+            rows_checked = len(locations) * len(expected)
+        else:
+            actual_locations = set(data["location_key"].dropna())
+            missing = len(locations - actual_locations)
+            rows_checked = len(locations)
         _append_result(
             report,
             run_id,
@@ -157,7 +180,7 @@ def check_weather(
             "WX04",
             "loaded dates are complete per location",
             "WARN",
-            len(data),
+            rows_checked,
             missing,
         )
     else:
@@ -172,7 +195,7 @@ def check_weather(
             0,
         )
     low, high = plausible_range
-    range_mask = (data["temp_min_c"] < low) | (data["temp_max_c"] > high)
+    range_mask = (temp_min < low) | (temp_max > high)
     _append_row_rule(
         report,
         data,
@@ -225,7 +248,7 @@ def check_arrivals(
             "country totals reconcile to report total",
             "ERROR",
             len(data),
-            0,
+            1,
         )
     else:
         failed = 0
@@ -253,15 +276,16 @@ def check_arrivals(
         "WARN",
         unknown_mask,
     )
-    _append_result(
+    change_mask = _arrivals_percentage_change_mask(data, change_threshold)
+    _append_row_rule(
         report,
+        data,
         run_id,
         "arrivals",
         "AR05",
         "period-over-period change is within threshold",
         "WARN",
-        len(data),
-        0,
+        change_mask,
     )
     version_mask = data.groupby("report_month")["report_version"].transform("nunique") > 1
     _append_row_rule(
@@ -333,6 +357,20 @@ def _percentage_change_mask(
     change = (ordered[value_column] - previous).abs() / previous.abs()
     mask = change.gt(threshold).fillna(False)
     return mask.reindex(data.index, fill_value=False)
+
+
+def _arrivals_percentage_change_mask(data: pd.DataFrame, threshold: float) -> pd.Series:
+    if data.empty:
+        return pd.Series(dtype=bool)
+    ordered = data.assign(_month=pd.to_datetime(data["report_month"]))
+    ordered = ordered.sort_values(["country_name", "_month"])
+    arrivals = pd.to_numeric(ordered["arrivals"], errors="coerce")
+    previous = arrivals.groupby(ordered["country_name"]).shift(1)
+    prior_zero = previous.eq(0)
+    change = (arrivals - previous).abs().div(previous.abs().where(~prior_zero))
+    change = change.mask(prior_zero & arrivals.eq(0), 0)
+    change = change.mask(prior_zero & arrivals.ne(0), np.inf)
+    return change.gt(threshold).reindex(data.index, fill_value=False)
 
 
 def _date_columns(group_columns: list[str]) -> list[str]:

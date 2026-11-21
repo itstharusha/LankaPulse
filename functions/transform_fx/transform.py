@@ -43,6 +43,8 @@ def transform_fx(
         provider = item.get("provider", "CBSL")
         base = str(item.get("base", "LKR")).upper()
         rates = item.get("rates", {})
+        if "quote" in item and "rate" in item:
+            rates = {item["quote"]: item["rate"]}
         if not date or not isinstance(rates, dict):
             rejected.append({"source": item, "reject_reason": "missing date or rates"})
             continue
@@ -61,14 +63,12 @@ def transform_fx(
                 )
                 continue
 
-            if currency == "LKR":
-                if base == "LKR":
-                    continue
-                quote_currency = base
-                rate = value
-            elif base == "LKR":
+            if base == "LKR":
                 quote_currency = currency
                 rate = 1 / value if value else value
+            elif currency == "LKR":
+                quote_currency = base
+                rate = value
             else:
                 continue
 

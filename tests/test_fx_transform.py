@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from functions.transform_fx.transform import transform_fx
 
 
@@ -30,3 +32,14 @@ def test_fx_quarantines_invalid_and_duplicate_rows() -> None:
         "rate must be positive",
         "duplicate date and currency",
     }
+
+
+def test_fx_handles_frankfurter_flat_records_and_lkr_base() -> None:
+    result = transform_fx(
+        [
+            {"date": "2026-01-02", "base": "LKR", "quote": "USD", "rate": 0.00323}
+        ]
+    )
+
+    assert result.data.iloc[0]["quote_currency"] == "USD"
+    assert result.data.iloc[0]["rate"] == pytest.approx(1 / 0.00323)
